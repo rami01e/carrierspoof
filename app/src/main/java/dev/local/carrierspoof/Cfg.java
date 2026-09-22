@@ -32,8 +32,9 @@ final class Cfg {
             de.robv.android.xposed.XSharedPreferences x =
                     new de.robv.android.xposed.XSharedPreferences(PKG, "carrier");
             x.reload();
-            if (apply(x.getString("numeric"), x.getString("alpha"), x.getString("country"),
-                    x.getString("imsi"), x.getString("iccid"), x.getString("line"))) return;
+            if (apply(x.getString("numeric", null), x.getString("alpha", null),
+                    x.getString("country", null), x.getString("imsi", null),
+                    x.getString("iccid", null), x.getString("line", null))) return;
         } catch (Throwable ignored) { }
 
         // 2) direct file reads
