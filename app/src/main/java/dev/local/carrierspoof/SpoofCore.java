@@ -10,7 +10,8 @@ final class SpoofCore {
 
     interface Ret { void set(Object v) throws Throwable; }
     interface CB { void run(Object thiz, Object[] args, Object result, Ret ret) throws Throwable; }
-    interface After { void apply(Member m, CB cb); }
+    interface After { void apply(Member m, CB cb); }   // after-hook: rewrite return value
+    interface Before { void apply(Member m, CB cb); }  // before-hook: rewrite arguments
 
     private static final CB NUM = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.NUMERIC); };
     private static final CB ALP = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.ALPHA); };
@@ -32,13 +33,8 @@ final class SpoofCore {
         return null;
     }
 
-    /**
-     * system_server ("android") hooks. SubscriptionController (ISub) and
-     * PhoneSubInfoController (IPhoneSubInfo) run here on Android 11+, not in
-     * com.android.phone. This is the authoritative layer GMS reads from.
-     */
+    /** system_server ("android") hooks — ISub + IPhoneSubInfo live here on Android 11+. */
     static void hookSystemServer(ClassLoader cl, After after) {
-        // 1) SubscriptionController — rewrite every SubscriptionInfo handed to any app
         try {
             Class<?> ctrl = cl.loadClass("com.android.internal.telephony.SubscriptionController");
             Class<?> info = cl.loadClass("android.telephony.SubscriptionInfo");
@@ -53,7 +49,6 @@ final class SpoofCore {
             Cfg.log("SubscriptionController: " + n + " methods hooked");
         } catch (Throwable t) { Cfg.log("SubscriptionController: " + t); }
 
-        // 2) PhoneSubInfoController (IPhoneSubInfo) — IMSI / ICCID / line
         try {
             Class<?> psi = cl.loadClass("com.android.internal.telephony.PhoneSubInfoController");
             int n = 0;
@@ -87,6 +82,33 @@ final class SpoofCore {
             } catch (Throwable t) { Cfg.log(cn + ": " + t); }
         }
         Cfg.log("binder/uicc endpoints hooked: " + hooked);
+    }
+
+    /**
+     * Rewrite the NETWORK operator (PLMN) at the source. The lock screen and
+     * Settings read the operator from ServiceState (pushed via PhoneStateListener
+     * from ServiceStateTracker), not from the getters above. Overriding the setters
+     * makes the cached ServiceState spoofed before any listener sees it.
+     */
+    static void hookNetworkSource(ClassLoader cl, Before before) {
+        try {
+            Class<?> ss = cl.loadClass("android.telephony.ServiceState");
+            try {
+                before.apply(ss.getDeclaredMethod("setOperatorName",
+                        String.class, String.class, String.class),
+                    (t, a, r, ret) -> { a[0] = Cfg.ALPHA; a[1] = Cfg.ALPHA; a[2] = Cfg.NUMERIC; });
+                Cfg.log("ServiceState.setOperatorName hooked");
+            } catch (Throwable t) { Cfg.log("setOperatorName: " + t); }
+
+            for (String m : new String[]{"setOperatorAlphaLong", "setOperatorAlphaShort", "setOperatorNumeric"}) {
+                try {
+                    final boolean num = m.contains("Numeric");
+                    before.apply(ss.getDeclaredMethod(m, String.class),
+                        (t, a, r, ret) -> { a[0] = num ? Cfg.NUMERIC : Cfg.ALPHA; });
+                } catch (Throwable ignored) { }
+            }
+            Cfg.log("ServiceState setters hooked");
+        } catch (Throwable t) { Cfg.log("ServiceState: " + t); }
     }
 
     static void hookClient(ClassLoader cl, After after) {
@@ -130,7 +152,7 @@ final class SpoofCore {
             for (Object o : (Collection<?>) r) if (info.isInstance(o)) rewriteSubInfo(o);
             return;
         }
-        try { // ParceledListSlice on some ROM variants
+        try {
             Object list = r.getClass().getMethod("getList").invoke(r);
             if (list instanceof Collection)
                 for (Object o : (Collection<?>) list) if (info.isInstance(o)) rewriteSubInfo(o);
@@ -148,10 +170,10 @@ final class SpoofCore {
         setF(o, "mIccId", Cfg.ICCID);
         setF(o, "mCountryIso", Cfg.COUNTRY);
         setF(o, "mNumber", Cfg.LINE);
-        setF(o, "mCarrierId", -1); // kill carrier-id lookup resolving to China Mobile
+        setF(o, "mCarrierId", -1);
     }
 
-    private static void rewriteServiceState(Object ss) { // network identity from the vRIL, not just SIM
+    private static void rewriteServiceState(Object ss) {
         if (ss == null) return;
         Cfg.refresh();
         for (Class<?> c = ss.getClass(); c != null && c != Object.class; c = c.getSuperclass())
