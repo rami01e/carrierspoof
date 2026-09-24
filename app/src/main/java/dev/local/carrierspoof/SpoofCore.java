@@ -32,17 +32,20 @@ final class SpoofCore {
         return null;
     }
 
-    static void hookPhone(ClassLoader cl, After after) {
+    /**
+     * system_server ("android") hooks. SubscriptionController (ISub) and
+     * PhoneSubInfoController (IPhoneSubInfo) run here on Android 11+, not in
+     * com.android.phone. This is the authoritative layer GMS reads from.
+     */
+    static void hookSystemServer(ClassLoader cl, After after) {
         // 1) SubscriptionController — rewrite every SubscriptionInfo handed to any app
         try {
             Class<?> ctrl = cl.loadClass("com.android.internal.telephony.SubscriptionController");
-            Class<?> info = cl.loadClass("com.android.internal.telephony.SubscriptionInfo");
+            Class<?> info = cl.loadClass("android.telephony.SubscriptionInfo");
             CB rw = (t, a, r, ret) -> rewriteSubInfoTree(r, info);
             int n = 0;
             for (Method m : ctrl.getDeclaredMethods()) {
                 Class<?> rt = m.getReturnType();
-                // hook every non-primitive getter; rewriter no-ops on non-matching results
-                // (covers both List and ParceledListSlice return types across ROMs)
                 if (m.getName().startsWith("get") && rt != void.class && !rt.isPrimitive()) {
                     after.apply(m, rw); n++;
                 }
@@ -50,11 +53,24 @@ final class SpoofCore {
             Cfg.log("SubscriptionController: " + n + " methods hooked");
         } catch (Throwable t) { Cfg.log("SubscriptionController: " + t); }
 
-        // 2) binder endpoints (ITelephony / IPhoneSubInfo) + UICC records — what GMS actually pulls
+        // 2) PhoneSubInfoController (IPhoneSubInfo) — IMSI / ICCID / line
+        try {
+            Class<?> psi = cl.loadClass("com.android.internal.telephony.PhoneSubInfoController");
+            int n = 0;
+            for (Method m : psi.getDeclaredMethods()) {
+                if (m.getReturnType() != String.class) continue;
+                CB cb = mapFor(m.getName());
+                if (cb != null) { after.apply(m, cb); n++; }
+            }
+            Cfg.log("PhoneSubInfoController: " + n + " methods hooked");
+        } catch (Throwable t) { Cfg.log("PhoneSubInfoController: " + t); }
+    }
+
+    /** com.android.phone process hooks — ITelephony binder + UICC records. */
+    static void hookPhone(ClassLoader cl, After after) {
         int hooked = 0;
         for (String cn : new String[]{
                 "com.android.phone.PhoneInterfaceManager",
-                "com.android.internal.telephony.PhoneSubInfoController",
                 "com.android.internal.telephony.uicc.IccRecords",
                 "com.android.internal.telephony.uicc.SIMRecords",
                 "com.android.internal.telephony.uicc.RuimRecords"}) {
