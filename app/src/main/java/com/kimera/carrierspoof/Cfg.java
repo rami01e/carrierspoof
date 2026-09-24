@@ -27,13 +27,45 @@ final class Cfg {
         lastCheck = now;
 
         try {
-            de.robv.android.xposed.XSharedPreferences x =
-                    new de.robv.android.xposed.XSharedPreferences(PKG, "carrier");
-            x.reload();
-            if (apply(x.getString("numeric", null), x.getString("alpha", null),
-                    x.getString("country", null), x.getString("imsi", null),
-                    x.getString("iccid", null), x.getString("line", null))) return;
-        } catch (Throwable ignored) { }
+            Class<?> prefsClass =
+                    Class.forName("de.robv.android.xposed.XSharedPreferences");
+        
+            Object prefs = prefsClass
+                    .getConstructor(String.class, String.class)
+                    .newInstance(PKG, "carrier");
+        
+            prefsClass.getMethod("reload").invoke(prefs);
+        
+            String numeric = (String) prefsClass
+                    .getMethod("getString", String.class, String.class)
+                    .invoke(prefs, "numeric", null);
+        
+            String alpha = (String) prefsClass
+                    .getMethod("getString", String.class, String.class)
+                    .invoke(prefs, "alpha", null);
+        
+            String country = (String) prefsClass
+                    .getMethod("getString", String.class, String.class)
+                    .invoke(prefs, "country", null);
+        
+            String imsi = (String) prefsClass
+                    .getMethod("getString", String.class, String.class)
+                    .invoke(prefs, "imsi", null);
+        
+            String iccid = (String) prefsClass
+                    .getMethod("getString", String.class, String.class)
+                    .invoke(prefs, "iccid", null);
+        
+            String line = (String) prefsClass
+                    .getMethod("getString", String.class, String.class)
+                    .invoke(prefs, "line", null);
+        
+            if (apply(numeric, alpha, country, imsi, iccid, line)) {
+                return;
+            }
+        } catch (Throwable ignored) {
+            // Xposed is optional; use the XML fallback below.
+        }
 
         for (String path : new String[]{
                 "/data/data/" + PKG + "/shared_prefs/carrier.xml",

@@ -37,5 +37,5 @@ android {
 }
 
 dependencies {
-    compileOnly files('libs/xposed-stub.jar')
+    // No Xposed compile-time dependency required.
 }

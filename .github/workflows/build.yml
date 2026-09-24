@@ -30,6 +30,16 @@ jobs:
           javac -d stub-classes @stub-sources.txt
           jar cf app/libs/xposed-stub.jar -C stub-classes .
 
+      - name: Compile Xposed API stub jar
+        run: |
+          mkdir -p app/libs stub-classes
+          find stub -name '*.java' -print > stub-sources.txt
+          test -s stub-sources.txt
+          javac -d stub-classes @stub-sources.txt
+          jar cf app/libs/xposed-stub.jar -C stub-classes .
+          jar tf app/libs/xposed-stub.jar \
+            | grep -qx 'de/robv/android/xposed/XSharedPreferences.class'
+
       - name: Generate release keystore (if missing)
         run: |
           mkdir -p keystore
