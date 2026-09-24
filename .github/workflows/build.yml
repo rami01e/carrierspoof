@@ -23,19 +23,19 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Compile Xposed API stub jar (compile-time only, never packaged)
-        run: |
-          mkdir -p app/libs stub-classes
-          find stub -name '*.java' > stub-sources.txt
-          javac -d stub-classes @stub-sources.txt
-          jar cf app/libs/xposed-stub.jar -C stub-classes .
-
       - name: Compile Xposed API stub jar
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p app/libs stub-classes
-          find stub -name '*.java' -print > stub-sources.txt
-          test -s stub-sources.txt
-          javac -d stub-classes @stub-sources.txt
+              
+          mapfile -t sources < <(find stub -type f -name '*.java' -print)
+          if [ "${#sources[@]}" -eq 0 ]; then
+            echo "ERROR: no Java sources found in stub/"
+            exit 1
+          fi
+              
+          javac -d stub-classes "${sources[@]}"
           jar cf app/libs/xposed-stub.jar -C stub-classes .
           jar tf app/libs/xposed-stub.jar \
             | grep -qx 'de/robv/android/xposed/XSharedPreferences.class'
