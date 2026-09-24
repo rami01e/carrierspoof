@@ -37,5 +37,8 @@ android {
 }
 
 dependencies {
-    // No Xposed compile-time dependency required.
+    // de.robv.android.xposed:api:82 is no longer hosted anywhere reachable
+    // (Bintray died in 2021). The workflow compiles our stub from /stub/ and
+    // drops it here. compileOnly = never packaged; runtime uses Vector's classes.
+    compileOnly files('libs/xposed-stub.jar')
 }

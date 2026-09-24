@@ -10,14 +10,14 @@ final class Cfg {
     interface LogFn { void log(String s); }
     static volatile LogFn LOG = s -> { };
 
-    // defaults = T-Mobile US
-    static volatile String NUMERIC = "310260", ALPHA = "T-Mobile", COUNTRY = "us",
-            IMSI = "310260123456789", ICCID = "890126000000000001", LINE = "+15551234567";
+    // defaults = Verizon US
+    static volatile String NUMERIC = "310004", ALPHA = "Verizon", COUNTRY = "us",
+            IMSI = "310004123456789", ICCID = "891480000000000001", LINE = "+12025550134";
 
-    private static volatile long lastCheck = 0L;
+    private static volatile long lastCheck = 0L;   // re-read config at most every 2 s
 
     static int mcc() { try { return Integer.parseInt(NUMERIC.substring(0, 3)); } catch (Throwable t) { return 310; } }
-    static int mnc() { try { return Integer.parseInt(NUMERIC.substring(3)); } catch (Throwable t) { return 260; } }
+    static int mnc() { try { return Integer.parseInt(NUMERIC.substring(3)); } catch (Throwable t) { return 4; } }
 
     static void log(String s) { try { LOG.log("[CarrierSpoof] " + s); } catch (Throwable ignored) { } }
 
@@ -26,47 +26,17 @@ final class Cfg {
         if (now - lastCheck < 2000L) return;
         lastCheck = now;
 
+        // 1) XSharedPreferences bridge (world-readable prefs; we chmod from the GUI)
         try {
-            Class<?> prefsClass =
-                    Class.forName("de.robv.android.xposed.XSharedPreferences");
-        
-            Object prefs = prefsClass
-                    .getConstructor(String.class, String.class)
-                    .newInstance(PKG, "carrier");
-        
-            prefsClass.getMethod("reload").invoke(prefs);
-        
-            String numeric = (String) prefsClass
-                    .getMethod("getString", String.class, String.class)
-                    .invoke(prefs, "numeric", null);
-        
-            String alpha = (String) prefsClass
-                    .getMethod("getString", String.class, String.class)
-                    .invoke(prefs, "alpha", null);
-        
-            String country = (String) prefsClass
-                    .getMethod("getString", String.class, String.class)
-                    .invoke(prefs, "country", null);
-        
-            String imsi = (String) prefsClass
-                    .getMethod("getString", String.class, String.class)
-                    .invoke(prefs, "imsi", null);
-        
-            String iccid = (String) prefsClass
-                    .getMethod("getString", String.class, String.class)
-                    .invoke(prefs, "iccid", null);
-        
-            String line = (String) prefsClass
-                    .getMethod("getString", String.class, String.class)
-                    .invoke(prefs, "line", null);
-        
-            if (apply(numeric, alpha, country, imsi, iccid, line)) {
-                return;
-            }
-        } catch (Throwable ignored) {
-            // Xposed is optional; use the XML fallback below.
-        }
+            de.robv.android.xposed.XSharedPreferences x =
+                    new de.robv.android.xposed.XSharedPreferences(PKG, "carrier");
+            x.reload();
+            if (apply(x.getString("numeric", null), x.getString("alpha", null),
+                    x.getString("country", null), x.getString("imsi", null),
+                    x.getString("iccid", null), x.getString("line", null))) return;
+        } catch (Throwable ignored) { }
 
+        // 2) direct file reads
         for (String path : new String[]{
                 "/data/data/" + PKG + "/shared_prefs/carrier.xml",
                 "/data/system/carrierspoof.conf"}) {
@@ -101,7 +71,7 @@ final class Cfg {
         if (a != null) ALPHA = a;
         if (c != null) COUNTRY = c;
         IMSI = (im != null) ? im : (n + "123456789");
-        ICCID = (ic != null) ? ic : "890126000000000001";
+        ICCID = (ic != null) ? ic : "891480000000000001";
         if (li != null) LINE = li;
         return true;
     }

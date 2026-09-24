@@ -10,8 +10,8 @@ final class SpoofCore {
 
     interface Ret { void set(Object v) throws Throwable; }
     interface CB { void run(Object thiz, Object[] args, Object result, Ret ret) throws Throwable; }
-    interface After { void apply(Member m, CB cb); }
-    interface Before { void apply(Member m, CB cb); }
+    interface After { void apply(Member m, CB cb); }   // after-hook: rewrite return value
+    interface Before { void apply(Member m, CB cb); }  // before-hook: rewrite arguments
 
     private static final CB NUM = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.NUMERIC); };
     private static final CB ALP = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.ALPHA); };
