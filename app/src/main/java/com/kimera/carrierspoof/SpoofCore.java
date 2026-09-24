@@ -1,4 +1,4 @@
-package dev.local.carrierspoof;
+package com.kimera.carrierspoof;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Member;
@@ -10,8 +10,8 @@ final class SpoofCore {
 
     interface Ret { void set(Object v) throws Throwable; }
     interface CB { void run(Object thiz, Object[] args, Object result, Ret ret) throws Throwable; }
-    interface After { void apply(Member m, CB cb); }   // after-hook: rewrite return value
-    interface Before { void apply(Member m, CB cb); }  // before-hook: rewrite arguments
+    interface After { void apply(Member m, CB cb); }
+    interface Before { void apply(Member m, CB cb); }
 
     private static final CB NUM = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.NUMERIC); };
     private static final CB ALP = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.ALPHA); };
@@ -20,7 +20,6 @@ final class SpoofCore {
     private static final CB IMS = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.IMSI); };
     private static final CB LIN = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.LINE); };
 
-    /** name-based classifier — survives ROM/version method-name drift */
     private static CB mapFor(String n) {
         if (n.contains("OperatorName") || n.contains("ServiceProviderName")
                 || n.contains("OperatorAlpha")) return ALP;
@@ -33,7 +32,6 @@ final class SpoofCore {
         return null;
     }
 
-    /** system_server ("android") hooks — ISub + IPhoneSubInfo live here on Android 11+. */
     static void hookSystemServer(ClassLoader cl, After after) {
         try {
             Class<?> ctrl = cl.loadClass("com.android.internal.telephony.SubscriptionController");
@@ -61,7 +59,6 @@ final class SpoofCore {
         } catch (Throwable t) { Cfg.log("PhoneSubInfoController: " + t); }
     }
 
-    /** com.android.phone process hooks — ITelephony binder + UICC records. */
     static void hookPhone(ClassLoader cl, After after) {
         int hooked = 0;
         for (String cn : new String[]{
@@ -84,12 +81,6 @@ final class SpoofCore {
         Cfg.log("binder/uicc endpoints hooked: " + hooked);
     }
 
-    /**
-     * Rewrite the NETWORK operator (PLMN) at the source. The lock screen and
-     * Settings read the operator from ServiceState (pushed via PhoneStateListener
-     * from ServiceStateTracker), not from the getters above. Overriding the setters
-     * makes the cached ServiceState spoofed before any listener sees it.
-     */
     static void hookNetworkSource(ClassLoader cl, Before before) {
         try {
             Class<?> ss = cl.loadClass("android.telephony.ServiceState");
@@ -144,7 +135,6 @@ final class SpoofCore {
         } catch (Throwable t) { Cfg.log("SubscriptionManager: " + t); }
     }
 
-    // ---------- object rewriters (pure reflection, no Xposed API) ----------
     private static void rewriteSubInfoTree(Object r, Class<?> info) {
         if (r == null) return;
         if (info.isInstance(r)) { rewriteSubInfo(r); return; }

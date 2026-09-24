@@ -1,11 +1,11 @@
-package dev.local.carrierspoof;
+package com.kimera.carrierspoof;
 
 import android.util.Xml;
 import org.xmlpull.v1.XmlPullParser;
 import java.io.FileReader;
 
 final class Cfg {
-    static final String PKG = "dev.local.carrierspoof";
+    static final String PKG = "com.kimera.carrierspoof";
 
     interface LogFn { void log(String s); }
     static volatile LogFn LOG = s -> { };
@@ -14,20 +14,18 @@ final class Cfg {
     static volatile String NUMERIC = "310260", ALPHA = "T-Mobile", COUNTRY = "us",
             IMSI = "310260123456789", ICCID = "890126000000000001", LINE = "+15551234567";
 
-    private static volatile long lastCheck = 0L;   // re-read config at most every 2 s
+    private static volatile long lastCheck = 0L;
 
     static int mcc() { try { return Integer.parseInt(NUMERIC.substring(0, 3)); } catch (Throwable t) { return 310; } }
     static int mnc() { try { return Integer.parseInt(NUMERIC.substring(3)); } catch (Throwable t) { return 260; } }
 
     static void log(String s) { try { LOG.log("[CarrierSpoof] " + s); } catch (Throwable ignored) { } }
 
-    /** Re-reads config on hooked calls (throttled) — carrier changes need no reinstall. */
     static synchronized void refresh() {
         long now = System.currentTimeMillis();
         if (now - lastCheck < 2000L) return;
         lastCheck = now;
 
-        // 1) XSharedPreferences bridge (world-readable prefs; we chmod from the GUI)
         try {
             de.robv.android.xposed.XSharedPreferences x =
                     new de.robv.android.xposed.XSharedPreferences(PKG, "carrier");
@@ -37,7 +35,6 @@ final class Cfg {
                     x.getString("iccid", null), x.getString("line", null))) return;
         } catch (Throwable ignored) { }
 
-        // 2) direct file reads
         for (String path : new String[]{
                 "/data/data/" + PKG + "/shared_prefs/carrier.xml",
                 "/data/system/carrierspoof.conf"}) {
@@ -64,7 +61,6 @@ final class Cfg {
                 if (apply(n, a, c, im, ic, li)) { log("config from " + path); return; }
             } catch (Throwable ignored) { }
         }
-        // 3) defaults stay in place
     }
 
     private static boolean apply(String n, String a, String c, String im, String ic, String li) {
