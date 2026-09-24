@@ -7,7 +7,6 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-/** Entry point registered in assets/xposed_init. */
 public class LegacyHook implements IXposedHookLoadPackage {
 
     private static final String[] CLIENTS = {
@@ -22,6 +21,7 @@ public class LegacyHook implements IXposedHookLoadPackage {
         } else if ("com.android.phone".equals(p.packageName)) {
             Cfg.log("phone process — installing framework hooks");
             SpoofCore.hookPhone(p.classLoader, LegacyHook::after);
+            SpoofCore.hookNetworkSource(p.classLoader, LegacyHook::before);
         } else {
             for (String c : CLIENTS)
                 if (c.equals(p.packageName)) {
@@ -38,6 +38,23 @@ public class LegacyHook implements IXposedHookLoadPackage {
                 protected void afterHookedMethod(MethodHookParam param) {
                     try {
                         cb.run(param.thisObject, param.args, param.getResult(), param::setResult);
+                    } catch (Throwable t) {
+                        Cfg.log("callback: " + t);
+                    }
+                }
+            });
+        } catch (Throwable t) {
+            Cfg.log("hook failed: " + m + " → " + t);
+        }
+    }
+
+    static void before(Member m, SpoofCore.CB cb) {
+        try {
+            XposedBridge.hookMethod(m, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    try {
+                        cb.run(param.thisObject, param.args, null, param::setResult);
                     } catch (Throwable t) {
                         Cfg.log("callback: " + t);
                     }
