@@ -7,7 +7,7 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-/** Backup entry: guaranteed-compiling API-82 path. Activate per README if MainHook won't compile. */
+/** Entry point registered in assets/xposed_init. */
 public class LegacyHook implements IXposedHookLoadPackage {
 
     private static final String[] CLIENTS = {
@@ -16,13 +16,16 @@ public class LegacyHook implements IXposedHookLoadPackage {
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam p) {
         Cfg.LOG = XposedBridge::log;
-        if ("com.android.phone".equals(p.packageName)) {
-            Cfg.log("phone process (legacy) — installing framework hooks");
+        if ("android".equals(p.packageName)) {
+            Cfg.log("system_server — installing system framework hooks");
+            SpoofCore.hookSystemServer(p.classLoader, LegacyHook::after);
+        } else if ("com.android.phone".equals(p.packageName)) {
+            Cfg.log("phone process — installing framework hooks");
             SpoofCore.hookPhone(p.classLoader, LegacyHook::after);
         } else {
             for (String c : CLIENTS)
                 if (c.equals(p.packageName)) {
-                    Cfg.log("client process " + c + " (legacy) — installing client hooks");
+                    Cfg.log("client process " + c + " — installing client hooks");
                     SpoofCore.hookClient(p.classLoader, LegacyHook::after);
                 }
         }
