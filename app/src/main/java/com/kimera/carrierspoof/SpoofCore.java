@@ -10,8 +10,8 @@ final class SpoofCore {
 
     interface Ret { void set(Object v) throws Throwable; }
     interface CB { void run(Object thiz, Object[] args, Object result, Ret ret) throws Throwable; }
-    interface After { void apply(Member m, CB cb); }   // after-hook: rewrite return value
-    interface Before { void apply(Member m, CB cb); }  // before-hook: rewrite arguments
+    interface After { void apply(Member m, CB cb); }
+    interface Before { void apply(Member m, CB cb); }
 
     private static final CB NUM = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.NUMERIC); };
     private static final CB ALP = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.ALPHA); };
@@ -78,6 +78,20 @@ final class SpoofCore {
                 }
             } catch (Throwable t) { Cfg.log(cn + ": " + t); }
         }
+
+        // SIM1 on/off → SIM state READY(5) / ABSENT(1)
+        try {
+            Class<?> pim = cl.loadClass("com.android.phone.PhoneInterfaceManager");
+            int n = 0;
+            for (Method m : pim.getDeclaredMethods()) {
+                if (m.getReturnType() != int.class) continue;
+                if (!m.getName().contains("SimState")) continue;
+                after.apply(m, (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.sim1On() ? 5 : 1); });
+                n++;
+            }
+            Cfg.log("SimState endpoints hooked: " + n);
+        } catch (Throwable t) { Cfg.log("SimState: " + t); }
+
         Cfg.log("binder/uicc endpoints hooked: " + hooked);
     }
 
