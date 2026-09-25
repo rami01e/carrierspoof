@@ -10,16 +10,20 @@ final class Cfg {
     interface LogFn { void log(String s); }
     static volatile LogFn LOG = s -> { };
 
-    // defaults = Verizon US, SIM1 on
-    static volatile String NUMERIC = "310004", ALPHA = "Verizon", COUNTRY = "us",
-            IMSI = "310004123456789", ICCID = "891480000000000001", LINE = "+12025550134",
-            SIM1 = "on";
+    // defaults = Verizon US, SIM1 on, eSIM off
+    static volatile String NUMERIC = "310004", ALPHA = "Verizon", SPN = "Verizon Wireless",
+            COUNTRY = "us", IMSI = "310004123456789", ICCID = "891480000000000001",
+            LINE = "+12025550134", SIM1 = "on", ESIM = "off";
+
+    // fake EID for the experimental eSIM toggle (32 hex chars)
+    static final String EID = "89049032123456789012345678901234";
 
     private static volatile long lastCheck = 0L;
 
     static int mcc() { try { return Integer.parseInt(NUMERIC.substring(0, 3)); } catch (Throwable t) { return 310; } }
     static int mnc() { try { return Integer.parseInt(NUMERIC.substring(3)); } catch (Throwable t) { return 4; } }
     static boolean sim1On() { return !"off".equals(SIM1); }
+    static boolean esimOn() { return "on".equals(ESIM); }
 
     static void log(String s) { try { LOG.log("[CarrierSpoof] " + s); } catch (Throwable ignored) { } }
 
@@ -33,9 +37,10 @@ final class Cfg {
                     new de.robv.android.xposed.XSharedPreferences(PKG, "carrier");
             x.reload();
             if (apply(x.getString("numeric", null), x.getString("alpha", null),
-                    x.getString("country", null), x.getString("imsi", null),
-                    x.getString("iccid", null), x.getString("line", null),
-                    x.getString("sim1", null))) return;
+                    x.getString("spn", null), x.getString("country", null),
+                    x.getString("imsi", null), x.getString("iccid", null),
+                    x.getString("line", null), x.getString("sim1", null),
+                    x.getString("esim", null))) return;
         } catch (Throwable ignored) { }
 
         for (String path : new String[]{
@@ -44,7 +49,8 @@ final class Cfg {
             try {
                 XmlPullParser p = Xml.newPullParser();
                 p.setInput(new FileReader(path));
-                String n = null, a = null, c = null, im = null, ic = null, li = null, s1 = null;
+                String n = null, a = null, sp = null, c = null, im = null, ic = null,
+                       li = null, s1 = null, es = null;
                 int ev = p.getEventType();
                 while (ev != XmlPullParser.END_DOCUMENT) {
                     if (ev == XmlPullParser.START_TAG && "string".equals(p.getName())) {
@@ -53,29 +59,34 @@ final class Cfg {
                         if (k != null && v != null) switch (k) {
                             case "numeric": n = v; break;
                             case "alpha":   a = v; break;
+                            case "spn":     sp = v; break;
                             case "country": c = v; break;
                             case "imsi":    im = v; break;
                             case "iccid":   ic = v; break;
                             case "line":    li = v; break;
                             case "sim1":    s1 = v; break;
+                            case "esim":    es = v; break;
                         }
                     }
                     ev = p.next();
                 }
-                if (apply(n, a, c, im, ic, li, s1)) { log("config from " + path); return; }
+                if (apply(n, a, sp, c, im, ic, li, s1, es)) { log("config from " + path); return; }
             } catch (Throwable ignored) { }
         }
     }
 
-    private static boolean apply(String n, String a, String c, String im, String ic, String li, String s1) {
+    private static boolean apply(String n, String a, String sp, String c,
+                                 String im, String ic, String li, String s1, String es) {
         if (n == null || n.length() < 5 || n.length() > 6) return false;
         NUMERIC = n;
         if (a != null) ALPHA = a;
+        if (sp != null) SPN = sp;
         if (c != null) COUNTRY = c;
         IMSI = (im != null) ? im : (n + "123456789");
         ICCID = (ic != null) ? ic : "891480000000000001";
         if (li != null) LINE = li;
         if (s1 != null) SIM1 = s1;
+        if (es != null) ESIM = es;
         return true;
     }
 }

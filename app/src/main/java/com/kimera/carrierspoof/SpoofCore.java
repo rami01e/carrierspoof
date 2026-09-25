@@ -15,16 +15,16 @@ final class SpoofCore {
 
     private static final CB NUM = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.NUMERIC); };
     private static final CB ALP = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.ALPHA); };
+    private static final CB SPN = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.SPN); };
     private static final CB CTR = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.COUNTRY); };
     private static final CB ICC = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.ICCID); };
     private static final CB IMS = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.IMSI); };
     private static final CB LIN = (t, a, r, ret) -> { Cfg.refresh(); ret.set(Cfg.LINE); };
 
     private static CB mapFor(String n) {
-        if (n.contains("OperatorName") || n.contains("ServiceProviderName")
-                || n.contains("OperatorAlpha")) return ALP;
-        if (n.contains("OperatorNumeric") || n.contains("SimOperator")
-                || n.contains("NetworkOperator")) return NUM;
+        if (n.contains("SimOperatorName") || n.contains("ServiceProviderName")) return SPN;
+        if (n.contains("NetworkOperatorName") || n.contains("OperatorAlpha")) return ALP;
+        if (n.contains("OperatorNumeric") || n.contains("SimOperator") || n.contains("NetworkOperator")) return NUM;
         if (n.contains("CountryIso")) return CTR;
         if (n.contains("IccSerialNumber") || n.contains("IccId")) return ICC;
         if (n.contains("SubscriberId") || n.equals("getIMSI") || n.contains("Imsi")) return IMS;
@@ -57,6 +57,8 @@ final class SpoofCore {
             }
             Cfg.log("PhoneSubInfoController: " + n + " methods hooked");
         } catch (Throwable t) { Cfg.log("PhoneSubInfoController: " + t); }
+
+        hookESimSystemServer(cl, after);
     }
 
     static void hookPhone(ClassLoader cl, After after) {
@@ -79,7 +81,6 @@ final class SpoofCore {
             } catch (Throwable t) { Cfg.log(cn + ": " + t); }
         }
 
-        // SIM1 on/off → SIM state READY(5) / ABSENT(1)
         try {
             Class<?> pim = cl.loadClass("com.android.phone.PhoneInterfaceManager");
             int n = 0;
@@ -135,7 +136,7 @@ final class SpoofCore {
             for (Method m : info.getDeclaredMethods()) {
                 String n = m.getName(); Class<?> rt = m.getReturnType();
                 if (rt == String.class || rt == CharSequence.class) {
-                    if (n.equals("getCarrierName") || n.equals("getDisplayName")) after.apply(m, ALP);
+                    if (n.equals("getCarrierName") || n.equals("getDisplayName")) after.apply(m, SPN);
                     else if (n.equals("getIccId")) after.apply(m, ICC);
                     else if (n.equals("getCountryIso") || n.equals("getCountryIsoString")) after.apply(m, CTR);
                     else if (n.equals("getMccString")) after.apply(m, (t, a, r, ret) -> ret.set(Cfg.NUMERIC.substring(0, 3)));
@@ -147,6 +148,44 @@ final class SpoofCore {
                 }
             }
         } catch (Throwable t) { Cfg.log("SubscriptionManager: " + t); }
+
+        hookESimClient(cl, after);
+    }
+
+    // ----- experimental eSIM spoof (off by default) -----
+    private static void hookESimSystemServer(ClassLoader cl, After after) {
+        try {
+            Class<?> c = cl.loadClass("com.android.internal.telephony.euicc.EuiccController");
+            for (Method m : c.getDeclaredMethods()) {
+                if (m.getReturnType() == boolean.class && m.getName().equals("isEsimSupported")) {
+                    after.apply(m, (t, a, r, ret) -> { if (Cfg.esimOn()) ret.set(true); });
+                } else if (m.getReturnType() == String.class && m.getName().contains("getEid")) {
+                    after.apply(m, (t, a, r, ret) -> { if (Cfg.esimOn()) ret.set(Cfg.EID); });
+                }
+            }
+            Cfg.log("eSIM system_server hooks installed");
+        } catch (Throwable t) { Cfg.log("eSIM ss: " + t); }
+    }
+
+    private static void hookESimClient(ClassLoader cl, After after) {
+        try {
+            Class<?> em = cl.loadClass("android.telephony.euicc.EuiccManager");
+            for (Method m : em.getDeclaredMethods()) {
+                if (m.getReturnType() == boolean.class && m.getName().equals("isEnabled")) {
+                    after.apply(m, (t, a, r, ret) -> { if (Cfg.esimOn()) ret.set(true); });
+                } else if (m.getReturnType() == String.class && m.getName().equals("getEid")) {
+                    after.apply(m, (t, a, r, ret) -> { if (Cfg.esimOn()) ret.set(Cfg.EID); });
+                }
+            }
+        } catch (Throwable t) { Cfg.log("eSIM client EuiccManager: " + t); }
+        try {
+            Class<?> info = cl.loadClass("android.telephony.SubscriptionInfo");
+            for (Method m : info.getDeclaredMethods()) {
+                if (m.getReturnType() == boolean.class && m.getName().equals("isEmbedded")) {
+                    after.apply(m, (t, a, r, ret) -> { if (Cfg.esimOn()) ret.set(true); });
+                }
+            }
+        } catch (Throwable t) { Cfg.log("eSIM client isEmbedded: " + t); }
     }
 
     private static void rewriteSubInfoTree(Object r, Class<?> info) {
@@ -169,8 +208,8 @@ final class SpoofCore {
         setF(o, "mMnc", Cfg.mnc());
         setF(o, "mMccString", Cfg.NUMERIC.substring(0, 3));
         setF(o, "mMncString", Cfg.NUMERIC.substring(3));
-        setF(o, "mCarrierName", Cfg.ALPHA);
-        setF(o, "mDisplayName", Cfg.ALPHA);
+        setF(o, "mCarrierName", Cfg.SPN);
+        setF(o, "mDisplayName", Cfg.SPN);
         setF(o, "mIccId", Cfg.ICCID);
         setF(o, "mCountryIso", Cfg.COUNTRY);
         setF(o, "mNumber", Cfg.LINE);
