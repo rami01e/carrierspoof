@@ -39,21 +39,21 @@ public class PickerActivity extends Activity {
         final List<Carrier> carriers = new ArrayList<>();
     }
 
-    private List<Country> countries = new ArrayList<>();
-    private Spinner countrySpin, carrierSpin, plmnSpin;
+    private Country us;
+    private Spinner carrierSpin, plmnSpin;
     private EditText lineEdit;
-    private Button sim1Toggle, esimToggle, applyBtn;
+    private Button sim1Toggle, clearBtn, applyBtn;
     private TextView status, testView;
     private SharedPreferences sp;
     private boolean suppress = false;
     private boolean sim1On = true;
-    private boolean esimOn = false;
+    private int lastCarrier = -1;
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         sp = getSharedPreferences("carrier", MODE_PRIVATE);
-        countries = loadCountries();
+        us = loadUsCountry();
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -65,35 +65,25 @@ public class PickerActivity extends Activity {
         title.setPadding(0, 0, 0, dp(12));
         root.addView(title);
 
-        countrySpin = new Spinner(this);
-        List<String> countryNames = new ArrayList<>();
-        for (Country c : countries) countryNames.add(c.name);
-        countrySpin.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, countryNames));
-        countrySpin.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(AdapterView<?> parent, View v, int pos, long id) {
-                if (suppress) return;
-                populateCarriers(pos);
-                markDirty();
-            }
-            @Override public void onNothingSelected(AdapterView<?> parent) { }
-        });
-        root.addView(countrySpin);
+        TextView countryLabel = new TextView(this);
+        countryLabel.setText(us.name);   // "🇺🇸 USA"
+        countryLabel.setTextSize(16);
+        countryLabel.setPadding(0, 0, 0, dp(4));
+        root.addView(countryLabel);
 
         sim1Toggle = new Button(this);
         sim1Toggle.setAllCaps(false);
-        sim1Toggle.setOnClickListener(v -> { sim1On = !sim1On; refreshToggles(); markDirty(); });
+        sim1Toggle.setOnClickListener(v -> { sim1On = !sim1On; refreshSim1Toggle(); markDirty(); });
         root.addView(sim1Toggle, fullWidth());
-
-        esimToggle = new Button(this);
-        esimToggle.setAllCaps(false);
-        esimToggle.setOnClickListener(v -> { esimOn = !esimOn; refreshToggles(); markDirty(); });
-        root.addView(esimToggle, fullWidth());
 
         carrierSpin = new Spinner(this);
         carrierSpin.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View v, int pos, long id) {
-                if (suppress) return;
-                populatePlmn(countrySpin.getSelectedItemPosition(), pos, true);
+                if (suppress) { lastCarrier = pos; return; }
+                if (pos != lastCarrier) {
+                    populatePlmn(pos, true);   // randomize ONLY when carrier changes
+                }
+                lastCarrier = pos;
                 markDirty();
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
@@ -124,7 +114,7 @@ public class PickerActivity extends Activity {
         lineBtns.setOrientation(LinearLayout.HORIZONTAL);
         Button randomLineBtn = new Button(this); randomLineBtn.setText("Random #");
         Button emptyLineBtn = new Button(this); emptyLineBtn.setText("Empty #");
-        randomLineBtn.setOnClickListener(v -> { lineEdit.setText(randomLine(currentCountryCode())); markDirty(); });
+        randomLineBtn.setOnClickListener(v -> { lineEdit.setText(usRandomLine()); markDirty(); });
         emptyLineBtn.setOnClickListener(v -> { lineEdit.setText(""); markDirty(); });
         lineBtns.addView(randomLineBtn, weight1());
         lineBtns.addView(emptyLineBtn, weight1());
@@ -148,7 +138,7 @@ public class PickerActivity extends Activity {
 
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.HORIZONTAL);
-        Button clearBtn = new Button(this); clearBtn.setText("Clear");
+        clearBtn = new Button(this); clearBtn.setText("Clear");
         applyBtn = new Button(this); applyBtn.setText("Apply");
         clearBtn.setOnClickListener(v -> { reloadFromConfig(); status.setText(""); });
         applyBtn.setOnClickListener(v -> applyGui());
@@ -163,69 +153,71 @@ public class PickerActivity extends Activity {
     }
 
     private void firstRun() {
-        int ci = indexOfCountry("US");
-        int xi = indexOfCarrier(ci, "Verizon");
-        Carrier vzw = countries.get(ci).carriers.get(xi);
+        int xi = indexOfCarrier("Verizon");
+        Carrier vzw = us.carriers.get(xi);
         int pi = new Random().nextInt(vzw.plmn.size());
-        writeConfig(ci, xi, pi, randomLine("US"), true, false);
+        writeConfig(xi, pi, usRandomLine(), true);
     }
 
     private void reloadFromConfig() {
-        int ci = indexOfCountry(sp.getString("country", "us").toUpperCase(Locale.US));
-        int xi = indexOfCarrier(ci, sp.getString("name", "Verizon"));
-        int pi = indexOfPlmn(ci, xi, sp.getString("numeric", "310004"));
+        int xi = indexOfCarrier(sp.getString("name", "Verizon"));
+        int pi = indexOfPlmn(xi, sp.getString("numeric", "310004"));
         if (pi < 0) pi = 0;
         String line = sp.getString("line", "");
         sim1On = !"off".equals(sp.getString("sim1", "on"));
-        esimOn = "on".equals(sp.getString("esim", "off"));
 
         suppress = true;
-        countrySpin.setSelection(ci);
-        populateCarriers(ci);
+        populateCarriers();
         carrierSpin.setSelection(xi);
-        populatePlmn(ci, xi, false);
+        populatePlmn(xi, false);
         plmnSpin.setSelection(pi);
         lineEdit.setText(line);
-        refreshToggles();
+        refreshSim1Toggle();
+        lastCarrier = xi;
         suppress = false;
 
-        final int fpi = pi;
-        countrySpin.post(() -> { plmnSpin.setSelection(fpi); markDirty(); });
+        final int fxi = xi, fpi = pi;
+        carrierSpin.post(() -> {
+            suppress = true;
+            carrierSpin.setSelection(fxi);
+            plmnSpin.setSelection(fpi);
+            lastCarrier = fxi;
+            suppress = false;
+            markDirty();
+        });
     }
 
-    private void populateCarriers(int ci) {
+    private void populateCarriers() {
         List<String> names = new ArrayList<>();
-        for (Carrier c : countries.get(ci).carriers) names.add(c.name);
+        for (Carrier c : us.carriers) names.add(c.name);
         carrierSpin.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names));
     }
 
-    private void populatePlmn(int ci, int xi, boolean randomize) {
-        if (ci < 0 || xi < 0 || xi >= countries.get(ci).carriers.size()) return;
+    private void populatePlmn(int xi, boolean randomize) {
+        if (xi < 0 || xi >= us.carriers.size()) return;
         List<String> opts = new ArrayList<>();
-        for (String s : countries.get(ci).carriers.get(xi).plmn) opts.add(s);
+        for (String s : us.carriers.get(xi).plmn) opts.add(s);
         plmnSpin.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, opts));
         if (randomize && !opts.isEmpty()) plmnSpin.setSelection(new Random().nextInt(opts.size()));
     }
 
     private void applyGui() {
-        int ci = countrySpin.getSelectedItemPosition();
         int xi = carrierSpin.getSelectedItemPosition();
         int pi = plmnSpin.getSelectedItemPosition();
-        if (ci < 0 || xi < 0 || pi < 0) return;
+        if (xi < 0 || pi < 0) return;
         String line = lineEdit.getText().toString().trim();
-        writeConfig(ci, xi, pi, line, sim1On, esimOn);
+        writeConfig(xi, pi, line, sim1On);
         markDirty();
         status.setText("Saved. Now reboot your device to see the carrier info changed!");
     }
 
-    private void writeConfig(int ci, int xi, int pi, String line, boolean sim1, boolean esim) {
-        Country co = countries.get(ci);
-        Carrier ca = co.carriers.get(xi);
+    private void writeConfig(int xi, int pi, String line, boolean sim1) {
+        Carrier ca = us.carriers.get(xi);
         String numeric = ca.plmn.get(pi).replace("-", "");
 
         String existingLine = sp.getString("line", null);
         if (line == null || line.isEmpty()) {
-            line = (existingLine != null) ? existingLine : randomLine(co.code);
+            line = (existingLine != null) ? existingLine : usRandomLine();
         }
 
         Random r = new Random();
@@ -242,46 +234,40 @@ public class PickerActivity extends Activity {
                 .putString("numeric", numeric)
                 .putString("alpha", ca.alpha)
                 .putString("spn", ca.spn)
-                .putString("country", co.code.toLowerCase(Locale.US))
+                .putString("country", us.code.toLowerCase(Locale.US))
                 .putString("imsi", imsi)
                 .putString("iccid", iccid)
                 .putString("line", line)
                 .putString("sim1", sim1 ? "on" : "off")
-                .putString("esim", esim ? "on" : "off")
                 .commit();
         chmodPrefs();
     }
 
     private void markDirty() {
         if (suppress) return;
-        applyBtn.setVisibility(isDirty() ? View.VISIBLE : View.GONE);
+        int vis = isDirty() ? View.VISIBLE : View.GONE;
+        applyBtn.setVisibility(vis);
+        clearBtn.setVisibility(vis);
     }
 
     private boolean isDirty() {
-        int ci = countrySpin.getSelectedItemPosition();
         int xi = carrierSpin.getSelectedItemPosition();
         int pi = plmnSpin.getSelectedItemPosition();
-        if (ci < 0 || xi < 0 || pi < 0) return false;
-        String guiNumeric = countries.get(ci).carriers.get(xi).plmn.get(pi).replace("-", "");
-        String guiName = countries.get(ci).carriers.get(xi).name;
-        String guiCountry = countries.get(ci).code.toLowerCase(Locale.US);
+        if (xi < 0 || pi < 0) return false;
+        String guiNumeric = us.carriers.get(xi).plmn.get(pi).replace("-", "");
+        String guiName = us.carriers.get(xi).name;
         String guiLine = lineEdit.getText().toString().trim();
         String guiSim1 = sim1On ? "on" : "off";
-        String guiEsim = esimOn ? "on" : "off";
 
         return !guiNumeric.equals(sp.getString("numeric", ""))
                 || !guiName.equals(sp.getString("name", ""))
-                || !guiCountry.equals(sp.getString("country", ""))
                 || !guiLine.equals(sp.getString("line", ""))
-                || !guiSim1.equals(sp.getString("sim1", "on"))
-                || !guiEsim.equals(sp.getString("esim", "off"));
+                || !guiSim1.equals(sp.getString("sim1", "on"));
     }
 
-    private void refreshToggles() {
+    private void refreshSim1Toggle() {
         sim1Toggle.setText("SIM1: " + (sim1On ? "ON" : "OFF"));
         sim1Toggle.setTextColor(sim1On ? 0xFF2E7D32 : 0xFFC62828);
-        esimToggle.setText("eSIM: " + (esimOn ? "ON" : "OFF"));
-        esimToggle.setTextColor(esimOn ? 0xFF2E7D32 : 0xFFC62828);
         carrierSpin.setEnabled(sim1On);
         plmnSpin.setEnabled(sim1On);
         lineEdit.setEnabled(sim1On);
@@ -292,16 +278,13 @@ public class PickerActivity extends Activity {
         String numeric = sp.getString("numeric", "");
         String alpha = sp.getString("alpha", "");
         String spn = sp.getString("spn", "");
-        String country = sp.getString("country", "");
         String line = sp.getString("line", "");
         StringBuilder sb = new StringBuilder();
 
         safeAppend(sb, "SIM operator", () -> tm.getSimOperator(), numeric);
         safeAppend(sb, "SIM name", () -> tm.getSimOperatorName(), spn);
-        safeAppend(sb, "SIM country", () -> tm.getSimCountryIso(), country);
         safeAppend(sb, "Net operator", () -> tm.getNetworkOperator(), numeric);
         safeAppend(sb, "Net name", () -> tm.getNetworkOperatorName(), alpha);
-        safeAppend(sb, "Net country", () -> tm.getNetworkCountryIso(), country);
 
         try {
             int st = tm.getSimState();
@@ -340,35 +323,21 @@ public class PickerActivity extends Activity {
         }
     }
 
-    private String currentCountryCode() {
-        int ci = countrySpin.getSelectedItemPosition();
-        return (ci >= 0) ? countries.get(ci).code : "US";
-    }
-
-    private String randomLine(String countryCode) {
+    private String usRandomLine() {
         Random r = new Random();
-        if ("SY".equalsIgnoreCase(countryCode)) {
-            int op = 3 + r.nextInt(6);
-            return String.format(Locale.US, "+9639%d%07d", op, r.nextInt(10000000));
-        }
         int npa, nxx;
         do { npa = 200 + r.nextInt(800); } while (npa % 100 == 11);
         do { nxx = 200 + r.nextInt(800); } while (nxx % 100 == 11);
         return String.format(Locale.US, "+1%03d%03d%04d", npa, nxx, r.nextInt(10000));
     }
 
-    private int indexOfCountry(String code) {
-        for (int i = 0; i < countries.size(); i++)
-            if (countries.get(i).code.equalsIgnoreCase(code)) return i;
+    private int indexOfCarrier(String name) {
+        for (int i = 0; i < us.carriers.size(); i++)
+            if (us.carriers.get(i).name.equals(name)) return i;
         return 0;
     }
-    private int indexOfCarrier(int ci, String name) {
-        List<Carrier> cs = countries.get(ci).carriers;
-        for (int i = 0; i < cs.size(); i++) if (cs.get(i).name.equals(name)) return i;
-        return 0;
-    }
-    private int indexOfPlmn(int ci, int xi, String numeric) {
-        List<String> pl = countries.get(ci).carriers.get(xi).plmn;
+    private int indexOfPlmn(int xi, String numeric) {
+        List<String> pl = us.carriers.get(xi).plmn;
         for (int i = 0; i < pl.size(); i++)
             if (pl.get(i).replace("-", "").equals(numeric)) return i;
         return -1;
@@ -392,13 +361,13 @@ public class PickerActivity extends Activity {
         } catch (Throwable ignored) { }
     }
 
-    private List<Country> loadCountries() {
+    private Country loadUsCountry() {
         try {
             String json = readAsset("carriers.json");
             JSONArray arr = new JSONObject(json).getJSONArray("countries");
-            List<Country> cs = new ArrayList<>();
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject co = arr.getJSONObject(i);
+                if (!"US".equalsIgnoreCase(co.optString("code"))) continue;
                 Country c = new Country();
                 c.code = co.getString("code");
                 c.name = co.getString("name");
@@ -413,16 +382,15 @@ public class PickerActivity extends Activity {
                     for (int k = 0; k < pl.length(); k++) car.plmn.add(pl.getString(k));
                     c.carriers.add(car);
                 }
-                cs.add(c);
+                return c;
             }
-            if (!cs.isEmpty()) return cs;
         } catch (Throwable t) { /* fall through */ }
 
         Country us = new Country(); us.code = "US"; us.name = "\uD83C\uDDFA\uD83C\uDDF8 USA";
-        Carrier vzw = new Carrier(); vzw.name = "Verizon"; vzw.alpha = "Verizon"; vzw.spn = "Verizon Wireless";
+        Carrier vzw = new Carrier();
+        vzw.name = "Verizon"; vzw.alpha = "Verizon Wireless"; vzw.spn = "Verizon";
         vzw.plmn.add("310-004"); us.carriers.add(vzw);
-        List<Country> cs = new ArrayList<>(); cs.add(us);
-        return cs;
+        return us;
     }
 
     private String readAsset(String name) throws Exception {

@@ -57,8 +57,6 @@ final class SpoofCore {
             }
             Cfg.log("PhoneSubInfoController: " + n + " methods hooked");
         } catch (Throwable t) { Cfg.log("PhoneSubInfoController: " + t); }
-
-        hookESimSystemServer(cl, after);
     }
 
     static void hookPhone(ClassLoader cl, After after) {
@@ -148,44 +146,6 @@ final class SpoofCore {
                 }
             }
         } catch (Throwable t) { Cfg.log("SubscriptionManager: " + t); }
-
-        hookESimClient(cl, after);
-    }
-
-    // ----- experimental eSIM spoof (off by default) -----
-    private static void hookESimSystemServer(ClassLoader cl, After after) {
-        try {
-            Class<?> c = cl.loadClass("com.android.internal.telephony.euicc.EuiccController");
-            for (Method m : c.getDeclaredMethods()) {
-                if (m.getReturnType() == boolean.class && m.getName().equals("isEsimSupported")) {
-                    after.apply(m, (t, a, r, ret) -> { if (Cfg.esimOn()) ret.set(true); });
-                } else if (m.getReturnType() == String.class && m.getName().contains("getEid")) {
-                    after.apply(m, (t, a, r, ret) -> { if (Cfg.esimOn()) ret.set(Cfg.EID); });
-                }
-            }
-            Cfg.log("eSIM system_server hooks installed");
-        } catch (Throwable t) { Cfg.log("eSIM ss: " + t); }
-    }
-
-    private static void hookESimClient(ClassLoader cl, After after) {
-        try {
-            Class<?> em = cl.loadClass("android.telephony.euicc.EuiccManager");
-            for (Method m : em.getDeclaredMethods()) {
-                if (m.getReturnType() == boolean.class && m.getName().equals("isEnabled")) {
-                    after.apply(m, (t, a, r, ret) -> { if (Cfg.esimOn()) ret.set(true); });
-                } else if (m.getReturnType() == String.class && m.getName().equals("getEid")) {
-                    after.apply(m, (t, a, r, ret) -> { if (Cfg.esimOn()) ret.set(Cfg.EID); });
-                }
-            }
-        } catch (Throwable t) { Cfg.log("eSIM client EuiccManager: " + t); }
-        try {
-            Class<?> info = cl.loadClass("android.telephony.SubscriptionInfo");
-            for (Method m : info.getDeclaredMethods()) {
-                if (m.getReturnType() == boolean.class && m.getName().equals("isEmbedded")) {
-                    after.apply(m, (t, a, r, ret) -> { if (Cfg.esimOn()) ret.set(true); });
-                }
-            }
-        } catch (Throwable t) { Cfg.log("eSIM client isEmbedded: " + t); }
     }
 
     private static void rewriteSubInfoTree(Object r, Class<?> info) {
