@@ -1,0 +1,29 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:scaleX="2.8"
+        android:scaleY="2.8"
+        android:translateX="20.4"
+        android:translateY="20.4">
+
+        <!-- SIM card body: rounded rect with the classic chamfered (cut) top-left corner -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M7,4 H18.5 A1.5,1.5 0 0 1 20,5.5 V18.5 A1.5,1.5 0 0 1 18.5,20 H5.5 A1.5,1.5 0 0 1 4,18.5 V7 Z"/>
+
+        <!-- Gold contact pad -->
+        <path
+            android:fillColor="#F9A825"
+            android:pathData="M8.5,9.5 H15.5 A1.5,1.5 0 0 1 17,11 V15 A1.5,1.5 0 0 1 15.5,16.5 H8.5 A1.5,1.5 0 0 1 7,15 V11 A1.5,1.5 0 0 1 8.5,9.5 Z"/>
+
+        <!-- Insulating gaps that split the pad into 6 contacts -->
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="0.5"
+            android:pathData="M10.33,9.5 V16.5 M13.67,9.5 V16.5 M7,13 H17"/>
+    </group>
+</vector>

@@ -4,5 +4,6 @@
     <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.DayNight">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
+        <item name="android:windowSplashScreenBackground">#1F2937</item>
     </style>
 </resources>

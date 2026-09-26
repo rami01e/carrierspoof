@@ -185,7 +185,8 @@ public class PickerActivity extends Activity {
         int xi = indexOfCarrier("Verizon");
         Carrier vzw = us.carriers.get(xi);
         int pi = new Random().nextInt(vzw.plmn.size());
-        writeConfig(xi, pi, usRandomLine(), true);
+        writePrefs(xi, pi, usRandomLine(), true);
+        stageAsync(vzw.plmn.get(pi).replace("-", ""), vzw.apn, vzw.name);
     }
 
     private void reloadFromConfig() {
@@ -230,6 +231,9 @@ public class PickerActivity extends Activity {
         if (randomize && !opts.isEmpty()) plmnSpin.setSelection(new Random().nextInt(opts.size()));
     }
 
+    /** Apply: only the fast SharedPreferences write happens on the UI thread.
+     *  All root/su work (config staging + APN insert) runs on a background
+     *  thread with a hard timeout, so Apply can never freeze the UI. */
     private void applyGui() {
         int xi = carrierSpin.getSelectedItemPosition();
         int pi = plmnSpin.getSelectedItemPosition();
@@ -237,13 +241,23 @@ public class PickerActivity extends Activity {
         Carrier ca = us.carriers.get(xi);
         String numeric = ca.plmn.get(pi).replace("-", "");
         String line = lineEdit.getText().toString().trim();
-        writeConfig(xi, pi, line, sim1On);
-        insertApn(numeric, ca.apn != null ? ca.apn : "internet", ca.name);
+        writePrefs(xi, pi, line, sim1On);
         markDirty();
-        status.setText("Saved. Now reboot your device to see the carrier info changed!");
+        status.setText("Saved — now reboot to see the carrier info changed.\n"
+                + "(Staging config + APN in the background; APN insert needs root.)");
+        stageAsync(numeric, ca.apn, ca.name);
     }
 
-    private void writeConfig(int xi, int pi, String line, boolean sim1) {
+    private void stageAsync(final String numeric, final String apn, final String name) {
+        new Thread(() -> {
+            suOut("cat " + getApplicationInfo().dataDir
+                    + "/shared_prefs/carrier.xml > /data/system/carrierspoof.conf"
+                    + "; chmod 644 /data/system/carrierspoof.conf");
+            insertApn(numeric, apn != null ? apn : "internet", name);
+        }).start();
+    }
+
+    private void writePrefs(int xi, int pi, String line, boolean sim1) {
         Carrier ca = us.carriers.get(xi);
         String numeric = ca.plmn.get(pi).replace("-", "");
 
@@ -442,22 +456,33 @@ public class PickerActivity extends Activity {
         }
     }
 
-    // ---------- su helpers ----------
+    // ---------- su helpers (all bounded, never block the UI) ----------
 
-    private String suOut(String cmd) {
-        try {
-            Process su = Runtime.getRuntime().exec("su");
-            su.getOutputStream().write((cmd + "\nexit\n").getBytes());
-            su.getOutputStream().flush();
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = su.getInputStream().read(buf)) != -1) out.write(buf, 0, n);
-            su.waitFor();
-            return out.toString("UTF-8");
-        } catch (Throwable t) {
-            return "(su failed: " + t + ")";
+    /** Runs a command as root, bounded to 6 s. Returns stdout ("" on failure/timeout). */
+    private String suOut(final String cmd) {
+        final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        final Process[] proc = new Process[1];
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    Process p = Runtime.getRuntime().exec("su");
+                    proc[0] = p;
+                    p.getOutputStream().write((cmd + "\nexit\n").getBytes());
+                    p.getOutputStream().flush();
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = p.getInputStream().read(buf)) != -1) out.write(buf, 0, n);
+                    p.waitFor();
+                } catch (Throwable ignored) { }
+            }
+        });
+        t.setDaemon(true);
+        t.start();
+        try { t.join(6000L); } catch (InterruptedException ignored) { }
+        if (t.isAlive()) {
+            try { if (proc[0] != null) proc[0].destroy(); } catch (Throwable ignored) { }
         }
+        try { return out.toString("UTF-8"); } catch (Throwable t2) { return ""; }
     }
 
     /** Insert the carrier's APN into the telephony carriers DB so Settings shows it.
@@ -497,6 +522,7 @@ public class PickerActivity extends Activity {
         return -1;
     }
 
+    /** Fast, no root: make prefs dir/file readable so the hooked processes can read them. */
     private void chmodPrefs() {
         try {
             File dd = new File(getApplicationInfo().dataDir);
@@ -504,14 +530,6 @@ public class PickerActivity extends Activity {
             File dir = new File(dd, "shared_prefs");
             dir.setReadable(true, false); dir.setExecutable(true, false);
             new File(dir, "carrier.xml").setReadable(true, false);
-        } catch (Throwable ignored) { }
-        try {
-            Process su = Runtime.getRuntime().exec("su");
-            su.getOutputStream().write(("cat " + getApplicationInfo().dataDir
-                    + "/shared_prefs/carrier.xml > /data/system/carrierspoof.conf\n"
-                    + "chmod 644 /data/system/carrierspoof.conf\n").getBytes());
-            su.getOutputStream().flush();
-            su.waitFor();
         } catch (Throwable ignored) { }
     }
 
