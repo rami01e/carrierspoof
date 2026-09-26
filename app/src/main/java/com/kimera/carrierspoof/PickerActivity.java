@@ -1,8 +1,12 @@
 package com.kimera.carrierspoof;
 
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.telephony.TelephonyManager;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -22,8 +26,11 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
@@ -64,10 +71,15 @@ public class PickerActivity extends Activity {
         int p = dp(16); root.setPadding(p, p, p, p);
 
         TextView title = new TextView(this);
-        title.setText("CarrierSpoof by KiMeRa");
+        title.setText("CarrierSpoof v" + versionName());
         title.setTextSize(20);
-        title.setPadding(0, 0, 0, dp(12));
         root.addView(title);
+
+        TextView byline = new TextView(this);
+        byline.setText("by KiMeRa");
+        byline.setTextSize(12);
+        byline.setPadding(0, 0, 0, dp(12));
+        root.addView(byline);
 
         TextView countryLabel = new TextView(this);
         countryLabel.setText(us.name);   // "🇺🇸 USA"
@@ -135,6 +147,11 @@ public class PickerActivity extends Activity {
         testView.setPadding(0, dp(8), 0, 0);
         root.addView(testView);
 
+        Button debugBtn = new Button(this);
+        debugBtn.setText("Save debug log");
+        debugBtn.setOnClickListener(v -> saveDebugLog());
+        root.addView(debugBtn, fullWidth());
+
         status = new TextView(this);
         status.setTextSize(13);
         status.setPadding(0, dp(10), 0, dp(10));
@@ -154,6 +171,14 @@ public class PickerActivity extends Activity {
 
         if (sp.getString("numeric", null) == null) firstRun();
         reloadFromConfig();
+    }
+
+    private String versionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Throwable t) {
+            return "?";
+        }
     }
 
     private void firstRun() {
@@ -209,8 +234,11 @@ public class PickerActivity extends Activity {
         int xi = carrierSpin.getSelectedItemPosition();
         int pi = plmnSpin.getSelectedItemPosition();
         if (xi < 0 || pi < 0) return;
+        Carrier ca = us.carriers.get(xi);
+        String numeric = ca.plmn.get(pi).replace("-", "");
         String line = lineEdit.getText().toString().trim();
         writeConfig(xi, pi, line, sim1On);
+        insertApn(numeric, ca.apn != null ? ca.apn : "internet", ca.name);
         markDirty();
         status.setText("Saved. Now reboot your device to see the carrier info changed!");
     }
@@ -312,7 +340,7 @@ public class PickerActivity extends Activity {
               .append(label).append(": ")
               .append(actual == null || actual.isEmpty() ? "(empty)" : actual).append('\n');
         } catch (Throwable t) {
-            sb.append(label).append(": n/a\n");
+            sb.append("\u274C").append(' ').append(label).append(": n/a\n");
         }
     }
 
@@ -328,6 +356,125 @@ public class PickerActivity extends Activity {
             case TelephonyManager.SIM_STATE_CARD_IO_ERROR: return "CARD_IO_ERROR";
             default: return "STATE_" + st;
         }
+    }
+
+    // ---------- debug log ----------
+
+    private void saveDebugLog() {
+        status.setText("Collecting debug log…");
+        new Thread(() -> {
+            final String text = buildDebugText();
+            runOnUiThread(() -> {
+                try {
+                    ContentValues cv = new ContentValues();
+                    cv.put(MediaStore.Downloads.DISPLAY_NAME, "carrierspoof_debug.txt");
+                    cv.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
+                    cv.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                    Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                    OutputStream os = getContentResolver().openOutputStream(uri);
+                    os.write(text.getBytes(StandardCharsets.UTF_8));
+                    os.close();
+                    status.setText("Saved to Downloads/carrierspoof_debug.txt\n"
+                            + "Share that file to debug IMSI/ICCID/APN.");
+                } catch (Throwable t) {
+                    status.setText("Debug log failed: " + t);
+                }
+            });
+        }).start();
+    }
+
+    private String buildDebugText() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== CarrierSpoof v").append(versionName()).append(" debug log ===\n");
+        sb.append("Time: ")
+          .append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date()))
+          .append('\n');
+        sb.append("Device: ").append(android.os.Build.MANUFACTURER).append(' ')
+          .append(android.os.Build.MODEL).append(", Android ")
+          .append(android.os.Build.VERSION.RELEASE).append(" (SDK ")
+          .append(android.os.Build.VERSION.SDK_INT).append(")\n\n");
+
+        sb.append("--- Saved config ---\n");
+        for (String k : new String[]{"name", "numeric", "alpha", "spn", "apn", "imsi", "iccid", "line", "sim1"})
+            sb.append(k).append('=').append(sp.getString(k, "(unset)")).append('\n');
+        sb.append('\n');
+
+        sb.append("--- Live system values ---\n");
+        TelephonyManager tm = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
+        appendSys(sb, "simOperator", () -> tm.getSimOperator());
+        appendSys(sb, "simOperatorName", () -> tm.getSimOperatorName());
+        appendSys(sb, "simCountryIso", () -> tm.getSimCountryIso());
+        appendSys(sb, "networkOperator", () -> tm.getNetworkOperator());
+        appendSys(sb, "networkOperatorName", () -> tm.getNetworkOperatorName());
+        appendSys(sb, "networkCountryIso", () -> tm.getNetworkCountryIso());
+        appendSys(sb, "simState", () -> String.valueOf(tm.getSimState()));
+        appendSys(sb, "line1Number", () -> tm.getLine1Number());
+        appendSys(sb, "subscriberId(IMSI)", () -> tm.getSubscriberId());
+        appendSys(sb, "simSerialNumber(ICCID)", () -> tm.getSimSerialNumber());
+        sb.append('\n');
+
+        sb.append("--- Relevant system properties (via su getprop) ---\n");
+        for (String line : suOut("getprop").split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("[gsm.") || t.startsWith("[ril.")
+                    || t.startsWith("[persist.radio") || t.startsWith("[persist.ril")
+                    || t.startsWith("[ro.multisim") || t.startsWith("[ro.vendor.multisim"))
+                sb.append(t).append('\n');
+        }
+        sb.append('\n');
+
+        sb.append("--- Module logcat (LSPosed-Bridge) ---\n");
+        sb.append(suOut("logcat -d -s LSPosed-Bridge:V"));
+        sb.append("\n(hint: if no 'phone process' or 'system_server' install lines appear above, "
+                + "the module is not injected into those processes — check the module scope in "
+                + "LSPosed/Vector. If 'PhoneSubInfoController: N methods hooked' is missing, "
+                + "IMSI/ICCID cannot be spoofed.)\n");
+        return sb.toString();
+    }
+
+    private void appendSys(StringBuilder sb, String label, Get g) {
+        try {
+            String v = g.get();
+            sb.append(label).append(" = ").append(v == null ? "(null)" : v).append('\n');
+        } catch (Throwable t) {
+            sb.append(label).append(" = EXCEPTION ").append(t.getClass().getName())
+              .append(": ").append(t.getMessage()).append('\n');
+        }
+    }
+
+    // ---------- su helpers ----------
+
+    private String suOut(String cmd) {
+        try {
+            Process su = Runtime.getRuntime().exec("su");
+            su.getOutputStream().write((cmd + "\nexit\n").getBytes());
+            su.getOutputStream().flush();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = su.getInputStream().read(buf)) != -1) out.write(buf, 0, n);
+            su.waitFor();
+            return out.toString("UTF-8");
+        } catch (Throwable t) {
+            return "(su failed: " + t + ")";
+        }
+    }
+
+    /** Insert the carrier's APN into the telephony carriers DB so Settings shows it.
+     *  Needs root (grant CarrierSpoof in KernelSU). Idempotent: deletes old rows first. */
+    private void insertApn(String numeric, String apn, String name) {
+        if (numeric == null || numeric.length() < 5) return;
+        String mcc = numeric.substring(0, 3);
+        String mnc = numeric.substring(3);
+        suOut("content delete --uri content://telephony/carriers"
+                + " --where \"numeric='" + numeric + "'\"");
+        suOut("content insert --uri content://telephony/carriers"
+                + " --bind name:s:'" + name + " Internet'"
+                + " --bind apn:s:'" + apn + "'"
+                + " --bind numeric:s:'" + numeric + "'"
+                + " --bind mcc:s:'" + mcc + "'"
+                + " --bind mnc:s:'" + mnc + "'"
+                + " --bind type:s:'default,mms,supl'");
     }
 
     private String usRandomLine() {

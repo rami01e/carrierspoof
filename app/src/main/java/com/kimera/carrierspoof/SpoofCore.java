@@ -32,7 +32,10 @@ final class SpoofCore {
         return null;
     }
 
-    static void hookSystemServer(ClassLoader cl, After after) {
+    /** SubscriptionController + PhoneSubInfoController. Hooked in BOTH system_server and the
+     *  phone process: the iphonesubinfo service location varies by Android version/ROM, and
+     *  loadClass simply no-ops (logged) where the class does not exist. */
+    static void hookSubInfoEndpoints(ClassLoader cl, After after) {
         try {
             Class<?> ctrl = cl.loadClass("com.android.internal.telephony.SubscriptionController");
             Class<?> info = cl.loadClass("android.telephony.SubscriptionInfo");

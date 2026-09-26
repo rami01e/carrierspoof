@@ -18,9 +18,10 @@ public class LegacyHook implements IXposedHookLoadPackage {
         SpoofCore.hookProps(p.classLoader, LegacyHook::after);
         if ("android".equals(p.packageName)) {
             Cfg.log("system_server — installing system framework hooks");
-            SpoofCore.hookSystemServer(p.classLoader, LegacyHook::after);
+            SpoofCore.hookSubInfoEndpoints(p.classLoader, LegacyHook::after);
         } else if ("com.android.phone".equals(p.packageName)) {
             Cfg.log("phone process — installing framework hooks");
+            SpoofCore.hookSubInfoEndpoints(p.classLoader, LegacyHook::after);
             SpoofCore.hookPhone(p.classLoader, LegacyHook::after);
             SpoofCore.hookNetworkSource(p.classLoader, LegacyHook::before);
         } else {
