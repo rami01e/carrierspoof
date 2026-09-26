@@ -49,11 +49,12 @@ public class PickerActivity extends Activity {
     private Country us;
     private Spinner carrierSpin, plmnSpin;
     private EditText lineEdit;
-    private Button sim1Toggle, clearBtn, applyBtn;
+    private Button sim1Toggle, apnToggle, clearBtn, applyBtn;
     private TextView status, testView;
     private SharedPreferences sp;
     private boolean suppress = false;
     private boolean sim1On = true;
+    private boolean apnInjectOn = false;   // default OFF — APN injection is opt-in
     private int lastCarrier = -1;
 
     @Override
@@ -89,8 +90,13 @@ public class PickerActivity extends Activity {
 
         sim1Toggle = new Button(this);
         sim1Toggle.setAllCaps(false);
-        sim1Toggle.setOnClickListener(v -> { sim1On = !sim1On; refreshSim1Toggle(); markDirty(); });
+        sim1Toggle.setOnClickListener(v -> { sim1On = !sim1On; refreshToggles(); markDirty(); });
         root.addView(sim1Toggle, fullWidth());
+
+        apnToggle = new Button(this);
+        apnToggle.setAllCaps(false);
+        apnToggle.setOnClickListener(v -> { apnInjectOn = !apnInjectOn; refreshToggles(); markDirty(); });
+        root.addView(apnToggle, fullWidth());
 
         carrierSpin = new Spinner(this);
         carrierSpin.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
@@ -186,7 +192,7 @@ public class PickerActivity extends Activity {
         Carrier vzw = us.carriers.get(xi);
         int pi = new Random().nextInt(vzw.plmn.size());
         writePrefs(xi, pi, usRandomLine(), true);
-        stageAsync(vzw.plmn.get(pi).replace("-", ""), vzw.apn, vzw.name);
+        stageAsync(vzw.plmn.get(pi).replace("-", ""), vzw.apn, vzw.name, false);
     }
 
     private void reloadFromConfig() {
@@ -195,6 +201,7 @@ public class PickerActivity extends Activity {
         if (pi < 0) pi = 0;
         String line = sp.getString("line", "");
         sim1On = !"off".equals(sp.getString("sim1", "on"));
+        apnInjectOn = "on".equals(sp.getString("apn_inject", "off"));
 
         suppress = true;
         populateCarriers();
@@ -202,7 +209,7 @@ public class PickerActivity extends Activity {
         populatePlmn(xi, false);
         plmnSpin.setSelection(pi);
         lineEdit.setText(line);
-        refreshSim1Toggle();
+        refreshToggles();
         lastCarrier = xi;
         suppress = false;
 
@@ -232,8 +239,10 @@ public class PickerActivity extends Activity {
     }
 
     /** Apply: only the fast SharedPreferences write happens on the UI thread.
-     *  All root/su work (config staging + APN insert) runs on a background
-     *  thread with a hard timeout, so Apply can never freeze the UI. */
+     *  All root/su work (config staging + APN injection) runs on a background
+     *  thread with a hard timeout, so Apply can never freeze the UI.
+     *  APN injection only runs when the APN toggle is ON; when it is OFF the
+     *  module removes any APN row it previously injected. */
     private void applyGui() {
         int xi = carrierSpin.getSelectedItemPosition();
         int pi = plmnSpin.getSelectedItemPosition();
@@ -244,16 +253,19 @@ public class PickerActivity extends Activity {
         writePrefs(xi, pi, line, sim1On);
         markDirty();
         status.setText("Saved — now reboot to see the carrier info changed.\n"
-                + "(Staging config + APN in the background; APN insert needs root.)");
-        stageAsync(numeric, ca.apn, ca.name);
+                + "(Staging config in the background; APN injection is "
+                + (apnInjectOn ? "ON" : "OFF") + ". Root needed for both.)");
+        stageAsync(numeric, ca.apn, ca.name, apnInjectOn);
     }
 
-    private void stageAsync(final String numeric, final String apn, final String name) {
+    private void stageAsync(final String numeric, final String apn, final String name,
+                            final boolean injectApn) {
         new Thread(() -> {
             suOut("cat " + getApplicationInfo().dataDir
                     + "/shared_prefs/carrier.xml > /data/system/carrierspoof.conf"
                     + "; chmod 644 /data/system/carrierspoof.conf");
-            insertApn(numeric, apn != null ? apn : "internet", name);
+            deleteApn(numeric);
+            if (injectApn) insertApn(numeric, apn != null ? apn : "internet", name);
         }).start();
     }
 
@@ -285,6 +297,7 @@ public class PickerActivity extends Activity {
                 .putString("iccid", iccid)
                 .putString("line", line)
                 .putString("sim1", sim1 ? "on" : "off")
+                .putString("apn_inject", apnInjectOn ? "on" : "off")
                 .putString("apn", ca.apn != null ? ca.apn : "internet")
                 .commit();
         chmodPrefs();
@@ -305,16 +318,20 @@ public class PickerActivity extends Activity {
         String guiName = us.carriers.get(xi).name;
         String guiLine = lineEdit.getText().toString().trim();
         String guiSim1 = sim1On ? "on" : "off";
+        String guiApn = apnInjectOn ? "on" : "off";
 
         return !guiNumeric.equals(sp.getString("numeric", ""))
                 || !guiName.equals(sp.getString("name", ""))
                 || !guiLine.equals(sp.getString("line", ""))
-                || !guiSim1.equals(sp.getString("sim1", "on"));
+                || !guiSim1.equals(sp.getString("sim1", "on"))
+                || !guiApn.equals(sp.getString("apn_inject", "off"));
     }
 
-    private void refreshSim1Toggle() {
+    private void refreshToggles() {
         sim1Toggle.setText("SIM1: " + (sim1On ? "ON" : "OFF"));
         sim1Toggle.setTextColor(sim1On ? 0xFF2E7D32 : 0xFFC62828);
+        apnToggle.setText("APN inject: " + (apnInjectOn ? "ON" : "OFF"));
+        apnToggle.setTextColor(apnInjectOn ? 0xFF2E7D32 : 0xFFC62828);
         carrierSpin.setEnabled(sim1On);
         plmnSpin.setEnabled(sim1On);
         lineEdit.setEnabled(sim1On);
@@ -409,7 +426,7 @@ public class PickerActivity extends Activity {
           .append(android.os.Build.VERSION.SDK_INT).append(")\n\n");
 
         sb.append("--- Saved config ---\n");
-        for (String k : new String[]{"name", "numeric", "alpha", "spn", "apn", "imsi", "iccid", "line", "sim1"})
+        for (String k : new String[]{"name", "numeric", "alpha", "spn", "apn", "apn_inject", "imsi", "iccid", "line", "sim1"})
             sb.append(k).append('=').append(sp.getString(k, "(unset)")).append('\n');
         sb.append('\n');
 
@@ -485,14 +502,19 @@ public class PickerActivity extends Activity {
         try { return out.toString("UTF-8"); } catch (Throwable t2) { return ""; }
     }
 
+    /** Remove any APN row the module injected for this numeric (needs root). */
+    private void deleteApn(String numeric) {
+        if (numeric == null || numeric.length() < 5) return;
+        suOut("content delete --uri content://telephony/carriers"
+                + " --where \"numeric='" + numeric + "'\"");
+    }
+
     /** Insert the carrier's APN into the telephony carriers DB so Settings shows it.
-     *  Needs root (grant CarrierSpoof in KernelSU). Idempotent: deletes old rows first. */
+     *  Needs root (grant CarrierSpoof in KernelSU). Only runs when APN inject is ON. */
     private void insertApn(String numeric, String apn, String name) {
         if (numeric == null || numeric.length() < 5) return;
         String mcc = numeric.substring(0, 3);
         String mnc = numeric.substring(3);
-        suOut("content delete --uri content://telephony/carriers"
-                + " --where \"numeric='" + numeric + "'\"");
         suOut("content insert --uri content://telephony/carriers"
                 + " --bind name:s:'" + name + " Internet'"
                 + " --bind apn:s:'" + apn + "'"
