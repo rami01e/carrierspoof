@@ -8,8 +8,8 @@ android {
         applicationId 'com.kimera.carrierspoof'
         minSdk 29
         targetSdk 34
-        versionCode 123
-        versionName "1.23"
+        versionCode 130
+        versionName "1.30"
     }
 
     signingConfigs {

@@ -148,6 +148,35 @@ final class SpoofCore {
         } catch (Throwable t) { Cfg.log("SubscriptionManager: " + t); }
     }
 
+    /** Spoof Samsung-style telephony properties for Java readers (SystemProperties.get).
+     *  Only affects scoped processes; full property spoofing needs resetprop (KernelSU). */
+    static void hookProps(ClassLoader cl, After after) {
+        try {
+            Class<?> sp = cl.loadClass("android.os.SystemProperties");
+            after.apply(sp.getDeclaredMethod("get", String.class), (t, a, r, ret) -> {
+                String k = (String) a[0];
+                if ("ril.attach.apn0".equals(k) || "ril.attach.apn1".equals(k)) {
+                    Cfg.refresh(); ret.set(Cfg.APN);
+                } else if ("gsm.version.ril-impl".equals(k)) {
+                    ret.set("Samsung RIL v5.0");
+                } else if ("ril.ICC_TYPE0".equals(k) || "ril.ICC_TYPE1".equals(k)) {
+                    ret.set("2");
+                }
+            });
+            after.apply(sp.getDeclaredMethod("get", String.class, String.class), (t, a, r, ret) -> {
+                String k = (String) a[0];
+                if ("ril.attach.apn0".equals(k) || "ril.attach.apn1".equals(k)) {
+                    Cfg.refresh(); ret.set(Cfg.APN);
+                } else if ("gsm.version.ril-impl".equals(k)) {
+                    ret.set("Samsung RIL v5.0");
+                } else if ("ril.ICC_TYPE0".equals(k) || "ril.ICC_TYPE1".equals(k)) {
+                    ret.set("2");
+                }
+            });
+            Cfg.log("SystemProperties props hooked");
+        } catch (Throwable t) { Cfg.log("SystemProperties: " + t); }
+    }
+
     private static void rewriteSubInfoTree(Object r, Class<?> info) {
         if (r == null) return;
         if (info.isInstance(r)) { rewriteSubInfo(r); return; }

@@ -15,6 +15,7 @@ public class LegacyHook implements IXposedHookLoadPackage {
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam p) {
         Cfg.LOG = XposedBridge::log;
+        SpoofCore.hookProps(p.classLoader, LegacyHook::after);
         if ("android".equals(p.packageName)) {
             Cfg.log("system_server — installing system framework hooks");
             SpoofCore.hookSystemServer(p.classLoader, LegacyHook::after);

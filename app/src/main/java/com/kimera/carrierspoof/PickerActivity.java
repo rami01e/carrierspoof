@@ -31,7 +31,7 @@ import java.util.Random;
 public class PickerActivity extends Activity {
 
     private static final class Carrier {
-        String name, alpha, spn;
+        String name, alpha, spn, iccid, apn;
         final List<String> plmn = new ArrayList<>();
     }
     private static final class Country {
@@ -53,6 +53,10 @@ public class PickerActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         sp = getSharedPreferences("carrier", MODE_PRIVATE);
+        if (checkSelfPermission("android.permission.READ_PHONE_STATE")
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{"android.permission.READ_PHONE_STATE"}, 100);
+        }
         us = loadUsCountry();
 
         LinearLayout root = new LinearLayout(this);
@@ -224,8 +228,8 @@ public class PickerActivity extends Activity {
         int msinLen = 15 - numeric.length();
         String imsi = numeric + String.format(Locale.US, "%0" + msinLen + "d",
                 (long) (r.nextDouble() * Math.pow(10, msinLen)));
-        String iccidBase = "891" + numeric;
-        int pad = Math.max(10, 19 - iccidBase.length());
+        String iccidBase = (ca.iccid != null && !ca.iccid.isEmpty()) ? ca.iccid : ("891" + numeric);
+        int pad = Math.max(11, 19 - iccidBase.length());
         String iccid = iccidBase + String.format(Locale.US, "%0" + pad + "d",
                 (long) (r.nextDouble() * Math.pow(10, pad)));
 
@@ -239,6 +243,7 @@ public class PickerActivity extends Activity {
                 .putString("iccid", iccid)
                 .putString("line", line)
                 .putString("sim1", sim1 ? "on" : "off")
+                .putString("apn", ca.apn != null ? ca.apn : "internet")
                 .commit();
         chmodPrefs();
     }
@@ -293,6 +298,8 @@ public class PickerActivity extends Activity {
         } catch (Throwable t) { sb.append("SIM state: n/a\n"); }
 
         safeAppend(sb, "Line", () -> tm.getLine1Number(), line);
+        safeAppend(sb, "IMSI", () -> tm.getSubscriberId(), sp.getString("imsi", ""));
+        safeAppend(sb, "ICCID", () -> tm.getSimSerialNumber(), sp.getString("iccid", ""));
         testView.setText(sb.toString().trim());
     }
 
@@ -378,6 +385,8 @@ public class PickerActivity extends Activity {
                     car.name = ca.getString("name");
                     car.alpha = ca.optString("alpha", car.name);
                     car.spn = ca.optString("spn", car.alpha);
+                    car.iccid = ca.optString("iccid", "891480");
+                    car.apn = ca.optString("apn", "internet");
                     JSONArray pl = ca.getJSONArray("plmn");
                     for (int k = 0; k < pl.length(); k++) car.plmn.add(pl.getString(k));
                     c.carriers.add(car);
@@ -389,6 +398,7 @@ public class PickerActivity extends Activity {
         Country us = new Country(); us.code = "US"; us.name = "\uD83C\uDDFA\uD83C\uDDF8 USA";
         Carrier vzw = new Carrier();
         vzw.name = "Verizon"; vzw.alpha = "Verizon Wireless"; vzw.spn = "Verizon";
+        vzw.iccid = "891480"; vzw.apn = "vzwinternet";
         vzw.plmn.add("310-004"); us.carriers.add(vzw);
         return us;
     }

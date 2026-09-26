@@ -13,7 +13,7 @@ final class Cfg {
     // defaults = Verizon US, SIM1 on
     static volatile String NUMERIC = "310004", ALPHA = "Verizon Wireless", SPN = "Verizon",
             COUNTRY = "us", IMSI = "310004123456789", ICCID = "891480000000000001",
-            LINE = "+12025550134", SIM1 = "on";
+            LINE = "+12025550134", SIM1 = "on", APN = "vzwinternet";
 
     private static volatile long lastCheck = 0L;
 
@@ -35,7 +35,8 @@ final class Cfg {
             if (apply(x.getString("numeric", null), x.getString("alpha", null),
                     x.getString("spn", null), x.getString("country", null),
                     x.getString("imsi", null), x.getString("iccid", null),
-                    x.getString("line", null), x.getString("sim1", null))) return;
+                    x.getString("line", null), x.getString("sim1", null),
+                    x.getString("apn", null))) return;
         } catch (Throwable ignored) { }
 
         for (String path : new String[]{
@@ -45,7 +46,7 @@ final class Cfg {
                 XmlPullParser p = Xml.newPullParser();
                 p.setInput(new FileReader(path));
                 String n = null, a = null, sp = null, c = null, im = null, ic = null,
-                       li = null, s1 = null;
+                       li = null, s1 = null, ap = null;
                 int ev = p.getEventType();
                 while (ev != XmlPullParser.END_DOCUMENT) {
                     if (ev == XmlPullParser.START_TAG && "string".equals(p.getName())) {
@@ -60,17 +61,18 @@ final class Cfg {
                             case "iccid":   ic = v; break;
                             case "line":    li = v; break;
                             case "sim1":    s1 = v; break;
+                            case "apn":     ap = v; break;
                         }
                     }
                     ev = p.next();
                 }
-                if (apply(n, a, sp, c, im, ic, li, s1)) { log("config from " + path); return; }
+                if (apply(n, a, sp, c, im, ic, li, s1, ap)) { log("config from " + path); return; }
             } catch (Throwable ignored) { }
         }
     }
 
     private static boolean apply(String n, String a, String sp, String c,
-                                 String im, String ic, String li, String s1) {
+                                 String im, String ic, String li, String s1, String ap) {
         if (n == null || n.length() < 5 || n.length() > 6) return false;
         NUMERIC = n;
         if (a != null) ALPHA = a;
@@ -80,6 +82,7 @@ final class Cfg {
         ICCID = (ic != null) ? ic : "891480000000000001";
         if (li != null) LINE = li;
         if (s1 != null) SIM1 = s1;
+        if (ap != null) APN = ap;
         return true;
     }
 }
